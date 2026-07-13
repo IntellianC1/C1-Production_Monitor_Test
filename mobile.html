@@ -267,13 +267,6 @@
     </div>
     <div class="notice-body" id="imgListBody"></div>
   </div>
-  <div class="notice-wrap" style="margin-top:8px;">
-    <div class="notice-toggle" id="shortageToggle" onclick="toggleShortage()">
-      <span>📦 결품리스트</span>
-      <span class="chev">▾</span>
-    </div>
-    <div class="notice-body" id="shortageBody"></div>
-  </div>
   <div class="summary-row" id="summaryRow"></div>
   <div id="mainContent"></div>
   <div class="footer-note">보기 전용 화면입니다. 수정은 PC에서 해주세요.<br>30초마다 <b>자동 갱신</b>됩니다.</div>
@@ -302,11 +295,19 @@
   <div id="historyContent" style="padding:12px 16px;"></div>
 </div>
 
+<!-- ── 탭5: 결품리스트 -->
+<div class="tabpanel" id="panel-shortage">
+  <div id="shortageInfo" style="padding:12px 16px 0;"></div>
+  <div class="hist-chipbar" id="shortageSortBar"></div>
+  <div id="shortageContent" style="padding:10px 16px;"></div>
+</div>
+
 <div class="bottombar">
   <button class="bt-btn active" data-tab="status" onclick="setTab('status')"><span class="ic">📊</span><span class="lb">현황</span></button>
   <button class="bt-btn" data-tab="notes" onclick="setTab('notes')"><span class="ic">📋</span><span class="lb">특이사항</span></button>
   <button class="bt-btn" data-tab="perf" onclick="setTab('perf')"><span class="ic">📈</span><span class="lb">실적</span></button>
   <button class="bt-btn" data-tab="history" onclick="setTab('history')"><span class="ic">🗂</span><span class="lb">히스토리</span></button>
+  <button class="bt-btn" data-tab="shortage" onclick="setTab('shortage')"><span class="ic">📦</span><span class="lb">결품</span></button>
 </div>
 
 <!-- ── 공정별 상세 바텀시트 -->
@@ -423,6 +424,7 @@ function setTab(tab) {
   if (tab === 'notes') renderNotesTab();
   if (tab === 'perf') renderPerfTab();
   if (tab === 'history') renderHistoryTab();
+  if (tab === 'shortage') renderShortageTab();
 }
 
 // ══════════ 탭1: 현황 ══════════
@@ -553,27 +555,62 @@ function closeImageView() {
   document.getElementById('imageViewOverlay').classList.remove('open');
 }
 
-// ══════════ 결품리스트 ══════════
-let shortageOpen = false;
+// ══════════ 탭5: 결품리스트 (정렬 가능) ══════════
 let shortageData = { items: [] };
+const SHORTAGE_COLS = [
+  { key:'line',  label:'LINE',  type:'text' },
+  { key:'order', label:'Order', type:'text' },
+  { key:'comp',  label:'Comp.', type:'text' },
+  { key:'desc',  label:'Desc.', type:'text' },
+  { key:'qty',   label:'Qty.',  type:'num'  },
+  { key:'date',  label:'Date',  type:'text' },
+];
+let shortageSort = { col: null, dir: 'asc' };
 
-function toggleShortage() {
-  shortageOpen = !shortageOpen;
-  document.getElementById('shortageToggle').classList.toggle('open', shortageOpen);
-  document.getElementById('shortageBody').classList.toggle('open', shortageOpen);
-  if (shortageOpen) renderShortage();
+function setShortageSort(col) {
+  if (shortageSort.col === col) {
+    shortageSort.dir = shortageSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    shortageSort = { col, dir: 'asc' };
+  }
+  renderShortageTab();
 }
 
-function renderShortage() {
-  const body = document.getElementById('shortageBody');
-  const items = (shortageData && shortageData.items) || [];
+function renderShortageTab() {
+  const infoEl = document.getElementById('shortageInfo');
+  const items = ((shortageData && shortageData.items) || []).slice();
+
+  if (shortageData.fileName) {
+    const dt = shortageData.uploadedAt ? new Date(shortageData.uploadedAt).toLocaleString('ko-KR') : '';
+    infoEl.innerHTML = `<div class="shortage-info"><b>${escapeHtml(shortageData.fileName)}</b> · ${items.length}건 · ${escapeHtml(shortageData.uploadedBy||'익명')} 업로드 · ${dt}</div>`;
+  } else {
+    infoEl.innerHTML = '<div class="shortage-info">업로드된 결품리스트가 없습니다.</div>';
+  }
+
+  document.getElementById('shortageSortBar').innerHTML = SHORTAGE_COLS.map(col => {
+    const active = shortageSort.col === col.key;
+    const arrow = active ? (shortageSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<button class="hist-chip ${active?'active':''}" onclick="setShortageSort('${col.key}')">${col.label}${arrow}</button>`;
+  }).join('');
+
+  if (shortageSort.col) {
+    const { col, dir } = shortageSort;
+    const colDef = SHORTAGE_COLS.find(c => c.key === col);
+    items.sort((a,b) => {
+      let av = a[col], bv = b[col];
+      if (colDef.type === 'num') { av = parseFloat(av)||0; bv = parseFloat(bv)||0; }
+      else { av = String(av||''); bv = String(bv||''); }
+      const cmp = av > bv ? 1 : av < bv ? -1 : 0;
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }
+
+  const content = document.getElementById('shortageContent');
   if (items.length === 0) {
-    body.innerHTML = '<div class="notice-item" style="color:var(--text-dim)">등록된 결품리스트가 없습니다.</div>';
+    content.innerHTML = '<div class="empty">등록된 결품리스트가 없습니다.</div>';
     return;
   }
-  const dt = shortageData.uploadedAt ? new Date(shortageData.uploadedAt).toLocaleString('ko-KR') : '';
-  const info = `<div class="shortage-info"><b>${escapeHtml(shortageData.fileName||'')}</b> · ${items.length}건 · ${escapeHtml(shortageData.uploadedBy||'익명')} 업로드 · ${dt}</div>`;
-  const cards = items.map(it => `
+  content.innerHTML = items.map(it => `
     <div class="shortage-card">
       <div class="comp">${escapeHtml(it.comp || '(부품명 없음)')}</div>
       <div class="row2"><span>${escapeHtml(it.line||'')} · ${escapeHtml(it.order||'')}</span><span class="qty">${escapeHtml(String(it.qty||0))}</span></div>
@@ -581,7 +618,6 @@ function renderShortage() {
       ${it.note ? `<div class="note">📝 ${escapeHtml(it.note)}</div>` : ''}
     </div>
   `).join('');
-  body.innerHTML = info + cards;
 }
 
 // ══════════ 탭4: 완료 히스토리 ══════════
@@ -1011,7 +1047,7 @@ async function loadData(isManual) {
     renderStatusTab();
     if (wdOpen) renderWdCalendar();
     if (imgListOpen) renderImgList();
-    if (shortageOpen) renderShortage();
+    if (currentTab === 'shortage') renderShortageTab();
     if (currentTab === 'notes') renderNotesTab();
     if (currentTab === 'perf') renderPerfTab();
     if (currentTab === 'history') renderHistoryTab();
