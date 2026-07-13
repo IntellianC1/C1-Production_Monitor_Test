@@ -91,6 +91,7 @@
 
   .mcard-top { display:flex; justify-content:space-between; align-items:flex-start; }
   .mcard-name { font-family:var(--font-mono); font-weight:700; font-size:17px; color:#c0326b; }
+  .mcard-plan-badge { font-family:var(--font-mono); font-size:12px; font-weight:700; color:#cc3377; border:1px solid #cc3377; background:rgba(204,51,119,.08); border-radius:4px; padding:2px 7px; white-space:nowrap; margin-left:7px; vertical-align:middle; }
   .mcard-full { font-size:11px; color:var(--text-dim); margin-top:2px; }
   .mcard-dday { text-align:right; }
   .mcard-dday .num { font-family:var(--font-mono); font-weight:900; font-size:22px; line-height:1; }
@@ -171,6 +172,40 @@
 
   .tabpanel { display:none; }
   .tabpanel.active { display:block; }
+
+  /* ── 공정별 상세 바텀시트 */
+  .sheet-overlay { display:none; position:fixed; inset:0; background:rgba(13,24,33,.55); z-index:50; }
+  .sheet-overlay.open { display:block; }
+  .sheet-box {
+    position:absolute; left:0; right:0; bottom:0; max-height:82vh;
+    background:#fff; border-radius:18px 18px 0 0; padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    overflow-y:auto;
+  }
+  .sheet-handle { width:36px; height:4px; background:var(--border); border-radius:3px; margin:0 auto 12px; }
+  .sheet-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .sheet-title { font-family:var(--font-mono); font-weight:700; font-size:16px; color:var(--text-primary); }
+  .sheet-close { background:var(--bg-card2); border:none; width:28px; height:28px; border-radius:8px; color:var(--text-dim); font-size:15px; }
+  .detail-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--bg-card2); }
+  .detail-row.na { color:var(--text-dim); font-size:13px; justify-content:space-between; }
+  .detail-label { font-size:12px; color:var(--text-dim); width:74px; flex-shrink:0; }
+  .detail-bar { flex:1; height:8px; background:var(--bg-card2); border-radius:5px; overflow:hidden; }
+  .detail-bar > div { height:100%; border-radius:5px; }
+  .detail-val { font-family:var(--font-mono); font-size:12px; font-weight:700; width:52px; text-align:right; flex-shrink:0; }
+
+  /* ── 이미지 목록 / 뷰어 */
+  .img-list-row { display:flex; align-items:center; justify-content:space-between; padding:10px 2px; border-bottom:1px solid var(--bg-card2); font-size:13px; color:var(--text-secondary); }
+  .img-list-row:last-child { border-bottom:none; }
+  .sheet-box img.viewer-img { width:100%; border-radius:10px; margin-top:6px; }
+
+  /* ── 히스토리 카드 */
+  .hist-chipbar { display:flex; gap:6px; padding:10px 16px 0; flex-wrap:wrap; }
+  .hist-chip { padding:6px 12px; border-radius:20px; border:1.5px solid var(--border); background:var(--bg-card); font-size:12px; font-weight:700; color:var(--text-dim); }
+  .hist-chip.active { background:var(--accent2); border-color:var(--accent2); color:#fff; }
+  .hist-card { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:13px 15px; margin-bottom:9px; }
+  .hist-top { display:flex; justify-content:space-between; align-items:baseline; }
+  .hist-badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; background:var(--accent-dim); color:var(--accent2); }
+  .hist-badge.fail { background:var(--red-dim); color:var(--red); }
+  .hist-nums { font-size:12px; color:var(--text-dim); margin-top:6px; font-family:var(--font-mono); }
 </style>
 </head>
 <body>
@@ -209,6 +244,13 @@
     </div>
     <div class="notice-body" id="wdBody"></div>
   </div>
+  <div class="notice-wrap" style="margin-top:8px;">
+    <div class="notice-toggle" id="imgToggle" onclick="toggleImgList()">
+      <span>🖼 등록 이미지</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="notice-body" id="imgListBody"></div>
+  </div>
   <div class="summary-row" id="summaryRow"></div>
   <div id="mainContent"></div>
   <div class="footer-note">보기 전용 화면입니다. 수정은 PC에서 해주세요.<br>30초마다 <b>자동 갱신</b>됩니다.</div>
@@ -230,10 +272,42 @@
   <div id="perfContent" style="padding:0 16px;"></div>
 </div>
 
+<!-- ── 탭4: 완료 히스토리 -->
+<div class="tabpanel" id="panel-history">
+  <div class="hist-chipbar" id="histCatBar"></div>
+  <div class="hist-chipbar" id="histMonthBar" style="margin-top:6px;"></div>
+  <div id="historyContent" style="padding:12px 16px;"></div>
+</div>
+
 <div class="bottombar">
   <button class="bt-btn active" data-tab="status" onclick="setTab('status')"><span class="ic">📊</span><span class="lb">현황</span></button>
   <button class="bt-btn" data-tab="notes" onclick="setTab('notes')"><span class="ic">📋</span><span class="lb">특이사항</span></button>
   <button class="bt-btn" data-tab="perf" onclick="setTab('perf')"><span class="ic">📈</span><span class="lb">실적</span></button>
+  <button class="bt-btn" data-tab="history" onclick="setTab('history')"><span class="ic">🗂</span><span class="lb">히스토리</span></button>
+</div>
+
+<!-- ── 공정별 상세 바텀시트 -->
+<div class="sheet-overlay" id="detailSheetOverlay" onclick="if(event.target===this)closeDetailSheet()">
+  <div class="sheet-box">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="detailSheetTitle">모델명</div>
+      <button class="sheet-close" onclick="closeDetailSheet()">✕</button>
+    </div>
+    <div id="detailSheetBody"></div>
+  </div>
+</div>
+
+<!-- ── 이미지 뷰어 바텀시트 -->
+<div class="sheet-overlay" id="imageViewOverlay" onclick="if(event.target===this)closeImageView()">
+  <div class="sheet-box">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="imageViewTitle">이미지</div>
+      <button class="sheet-close" onclick="closeImageView()">✕</button>
+    </div>
+    <div id="imageViewBody" style="text-align:center;color:var(--text-dim);font-size:13px;padding:20px 0;">불러오는 중...</div>
+  </div>
 </div>
 
 <script>
@@ -325,6 +399,7 @@ function setTab(tab) {
   document.getElementById('panel-' + tab).classList.add('active');
   if (tab === 'notes') renderNotesTab();
   if (tab === 'perf') renderPerfTab();
+  if (tab === 'history') renderHistoryTab();
 }
 
 // ══════════ 탭1: 현황 ══════════
@@ -400,6 +475,110 @@ function renderWdCalendar() {
   `;
 }
 
+// ══════════ 등록 이미지 갤러리 ══════════
+let imgListOpen = false;
+let sharedImagesMeta = [];
+let imgCache = {};
+
+function toggleImgList() {
+  imgListOpen = !imgListOpen;
+  document.getElementById('imgToggle').classList.toggle('open', imgListOpen);
+  document.getElementById('imgListBody').classList.toggle('open', imgListOpen);
+  if (imgListOpen) renderImgList();
+}
+
+function renderImgList() {
+  const body = document.getElementById('imgListBody');
+  if (!sharedImagesMeta || sharedImagesMeta.length === 0) {
+    body.innerHTML = '<div class="notice-item" style="color:var(--text-dim)">등록된 이미지가 없습니다.</div>';
+    return;
+  }
+  body.innerHTML = sharedImagesMeta.map(img => `
+    <div class="img-list-row" onclick="openImageView('${img.id}')">
+      <span>🖼 ${escapeHtml(img.title)}</span>
+      <span style="color:var(--text-dim);">›</span>
+    </div>
+  `).join('');
+}
+
+async function openImageView(id) {
+  const meta = (sharedImagesMeta||[]).find(m => m.id === id);
+  document.getElementById('imageViewTitle').textContent = meta ? meta.title : '이미지';
+  const body = document.getElementById('imageViewBody');
+  document.getElementById('imageViewOverlay').classList.add('open');
+
+  const descHtml = (meta && meta.desc) ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;text-align:left;">${escapeHtml(meta.desc)}</div>` : '';
+
+  if (imgCache[id]) {
+    body.innerHTML = `<img class="viewer-img" src="${imgCache[id]}">${descHtml}`;
+    return;
+  }
+  body.innerHTML = '<div style="padding:20px;">불러오는 중...</div>';
+  try {
+    const res = await fetch(GS_URL + '?action=load_shared_image&id=' + encodeURIComponent(id));
+    const json = await res.json();
+    if (json.status !== 'ok' || !json.data || !json.data.imageData) throw new Error('불러오기 실패');
+    imgCache[id] = json.data.imageData;
+    body.innerHTML = `<img class="viewer-img" src="${json.data.imageData}">${descHtml}`;
+  } catch (e) {
+    console.error(e);
+    body.innerHTML = '<div style="padding:20px;color:var(--red);">이미지를 불러오지 못했습니다.</div>';
+  }
+}
+
+function closeImageView() {
+  document.getElementById('imageViewOverlay').classList.remove('open');
+}
+
+// ══════════ 탭4: 완료 히스토리 ══════════
+let histCategory = 'all';
+let histMonth = 0;
+
+function setHistCategory(c) { histCategory = c; renderHistoryTab(); }
+function setHistMonth(m) { histMonth = m; renderHistoryTab(); }
+
+function renderHistoryTab() {
+  const catBar = document.getElementById('histCatBar');
+  catBar.innerHTML = [['all','전체'],['ant','ANT'],['ckd','CKD']].map(([c,label]) =>
+    `<button class="hist-chip ${histCategory===c?'active':''}" onclick="setHistCategory('${c}')">${label}</button>`
+  ).join('');
+
+  let filtered = allHistory.filter(h => {
+    if (histCategory === 'all') return true;
+    const isCkd = h.procSet && h.procSet.indexOf('CKD') === 0;
+    return histCategory === 'ckd' ? isCkd : !isCkd;
+  });
+
+  const months = [...new Set(filtered.map(h => getHistYearMonth(h).month).filter(Boolean))].sort((a,b) => b-a);
+  document.getElementById('histMonthBar').innerHTML =
+    `<button class="hist-chip ${histMonth===0?'active':''}" onclick="setHistMonth(0)">전체</button>` +
+    months.map(mo => `<button class="hist-chip ${histMonth===mo?'active':''}" onclick="setHistMonth(${mo})">${mo}월</button>`).join('');
+
+  if (histMonth !== 0) filtered = filtered.filter(h => getHistYearMonth(h).month === histMonth);
+  filtered = filtered.slice().sort((a,b) => new Date(b.completedAt||0) - new Date(a.completedAt||0));
+  _renderedHistory = filtered;
+
+  const content = document.getElementById('historyContent');
+  if (filtered.length === 0) {
+    content.innerHTML = '<div class="empty">완료 처리된 모델이 없습니다.</div>';
+    return;
+  }
+  content.innerHTML = filtered.map((h,i) => {
+    const { qty, unit } = calcActualQty(h);
+    const rate = h.plan > 0 ? Math.round(qty/h.plan*100) : 0;
+    return `
+      <div class="hist-card" onclick="openProcDetail('history', ${i})">
+        <div class="hist-top">
+          <span class="mcard-name" style="font-size:14px;">${escapeHtml(h.model)}</span>
+          <span class="hist-badge ${rate<100?'fail':''}">${rate>=100?'✔ 완료':'⚠ 미달성'}</span>
+        </div>
+        ${h.fullName ? `<div class="mcard-full">${escapeHtml(h.fullName)}</div>` : ''}
+        <div class="hist-nums">계획 ${h.plan}${unit} · 실적 ${qty}${unit} (${rate}%) · 완료일 ${escapeHtml(h.completedDate||'-')}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 function setSeg(seg) {
   currentSeg = seg;
   document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.seg === seg));
@@ -407,19 +586,30 @@ function setSeg(seg) {
 }
 
 function renderSummary(models) {
-  const ant = models.filter(m => !(m.procSet && m.procSet.indexOf('CKD')===0));
-  let plan=0, main=0, pack=0;
-  ant.forEach(m => { plan+=m.plan||0; main+=(m.procs&&m.procs['main'])||0; pack+=(m.procs&&m.procs['pack'])||0; });
+  const now = new Date();
+  const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
+
+  const activeAnt = models.filter(m => !(m.procSet && m.procSet.indexOf('CKD')===0));
+  const histAntThisMonth = allHistory.filter(h => {
+    if (h.procSet && h.procSet.indexOf('CKD')===0) return false;
+    const ym = getHistYearMonth(h);
+    return ym.year === curYear && ym.month === curMonth;
+  });
+
+  let plan=0, main=0, pack=0, count=0;
+  activeAnt.forEach(m => { plan+=m.plan||0; main+=(m.procs&&m.procs['main'])||0; pack+=(m.procs&&m.procs['pack'])||0; count++; });
+  histAntThisMonth.forEach(h => { plan+=h.plan||0; main+=(h.procs&&h.procs['main'])||0; pack+=(h.procs&&h.procs['pack'])||0; count++; });
+
   const row = document.getElementById('summaryRow');
   row.innerHTML = `
-    <div class="summary-chip"><div class="n">${ant.length}</div><div class="l">진행중 모델</div></div>
+    <div class="summary-chip"><div class="n">${count}</div><div class="l">당월 전체 모델</div></div>
     <div class="summary-chip"><div class="n">${plan}</div><div class="l">총 계획(대)</div></div>
     <div class="summary-chip"><div class="n">${plan>0?Math.round(main/plan*100):0}%</div><div class="l">조립 완료</div></div>
     <div class="summary-chip"><div class="n">${plan>0?Math.round(pack/plan*100):0}%</div><div class="l">포장 완료</div></div>
   `;
 }
 
-function renderAntCard(m) {
+function renderAntCard(m, i) {
   const plan = m.plan || 0;
   const mainDone = (m.procs && m.procs['main']) || 0;
   const packDone = (m.procs && m.procs['pack']) || 0;
@@ -430,10 +620,10 @@ function renderAntCard(m) {
   const packPct = plan>0 ? Math.min(Math.round(packDone/plan*100),100) : 0;
 
   return `
-    <div class="mcard st-${st.cls}">
+    <div class="mcard st-${st.cls}" onclick="openProcDetail('ant', ${i})">
       <div class="mcard-top">
         <div>
-          <div class="mcard-name">${escapeHtml(m.model)}</div>
+          <div><span class="mcard-name">${escapeHtml(m.model)}</span><span class="mcard-plan-badge">${plan}대</span></div>
           ${m.fullName ? `<div class="mcard-full">${escapeHtml(m.fullName)}</div>` : ''}
         </div>
         <div class="mcard-dday">
@@ -458,7 +648,7 @@ function renderAntCard(m) {
   `;
 }
 
-function renderCkdCard(m) {
+function renderCkdCard(m, i) {
   const procArr = (procSets && procSets[m.procSet]) || [];
   const siteCount = m.plan || 0;
   const completed = calcCkdCompletedSites(m, procArr);
@@ -467,10 +657,10 @@ function renderCkdCard(m) {
   const dday = getDdayInfo(m.shipDate);
 
   return `
-    <div class="mcard st-${st.cls}">
+    <div class="mcard st-${st.cls}" onclick="openProcDetail('ckd', ${i})">
       <div class="mcard-top">
         <div>
-          <div class="mcard-name">${escapeHtml(m.model)}</div>
+          <div><span class="mcard-name">${escapeHtml(m.model)}</span><span class="mcard-plan-badge">${siteCount} Site</span></div>
           ${m.fullName ? `<div class="mcard-full">${escapeHtml(m.fullName)}</div>` : ''}
         </div>
         <div class="mcard-dday">
@@ -490,6 +680,42 @@ function renderCkdCard(m) {
   `;
 }
 
+let _renderedAnt = [], _renderedCkd = [], _renderedHistory = [];
+
+function openProcDetail(source, i) {
+  const m = source === 'ant' ? _renderedAnt[i] : source === 'ckd' ? _renderedCkd[i] : _renderedHistory[i];
+  if (!m) return;
+  const procArr = (procSets && procSets[m.procSet]) || [];
+  const isCkd = m.procSet && m.procSet.indexOf('CKD') === 0;
+
+  document.getElementById('detailSheetTitle').textContent = m.model + (m.fullName ? ' · ' + m.fullName : '');
+
+  if (procArr.length === 0) {
+    document.getElementById('detailSheetBody').innerHTML = '<div class="empty">공정 세트 정보를 찾을 수 없습니다.</div>';
+  } else {
+    document.getElementById('detailSheetBody').innerHTML = procArr.map(p => {
+      const isExcluded = m.excludedProcs && m.excludedProcs.includes(p.id);
+      if (isExcluded) {
+        return `<div class="detail-row na"><span>${escapeHtml(p.short)}</span><span>N/A</span></div>`;
+      }
+      const done = (m.procs && m.procs[p.id]) || 0;
+      const planQty = isCkd ? ((m.procPlan && m.procPlan[p.id]) || 0) : (m.plan || 0);
+      const pct = planQty > 0 ? Math.round(done / planQty * 100) : 0;
+      return `
+        <div class="detail-row">
+          <div class="detail-label">${escapeHtml(p.short)}</div>
+          <div class="detail-bar"><div style="width:${Math.min(pct,100)}%;background:${pct>=100?'var(--accent)':'var(--green)'};"></div></div>
+          <div class="detail-val">${done}/${planQty} (${pct}%)</div>
+        </div>`;
+    }).join('');
+  }
+  document.getElementById('detailSheetOverlay').classList.add('open');
+}
+
+function closeDetailSheet() {
+  document.getElementById('detailSheetOverlay').classList.remove('open');
+}
+
 function renderStatusTab() {
   const main = document.getElementById('mainContent');
   const ant = allModels.filter(m => !(m.procSet && m.procSet.indexOf('CKD')===0));
@@ -505,7 +731,8 @@ function renderStatusTab() {
     if (ant.length > 0) {
       html += '<div class="section-label">ANT 생산현황</div><div class="cards">';
       ant.sort((a,b) => (calcDday(a.shipDate)??999) - (calcDday(b.shipDate)??999));
-      ant.forEach(m => html += renderAntCard(m));
+      _renderedAnt = ant;
+      ant.forEach((m,i) => html += renderAntCard(m,i));
       html += '</div>';
     }
   }
@@ -513,7 +740,8 @@ function renderStatusTab() {
     if (ckd.length > 0) {
       html += '<div class="section-label">CKD (미국공장 포장출하)</div><div class="cards">';
       ckd.sort((a,b) => (calcDday(a.shipDate)??999) - (calcDday(b.shipDate)??999));
-      ckd.forEach(m => html += renderCkdCard(m));
+      _renderedCkd = ckd;
+      ckd.forEach((m,i) => html += renderCkdCard(m,i));
       html += '</div>';
     }
   }
@@ -553,8 +781,8 @@ function renderNotesTab() {
     const dday = getDdayInfo(m.shipDate);
     const rows = m.noteData.map(r => `
       <div class="note-row">
-        <div class="txt">${escapeHtml(r.issue || r.text || '(내용 없음)')}</div>
-        ${r.remarks ? `<div class="txt" style="color:var(--text-dim);font-size:12px;margin-top:3px;">${escapeHtml(r.remarks)}</div>` : ''}
+        <div class="txt">${r.issue || r.text || '(내용 없음)'}</div>
+        ${r.remarks ? `<div class="txt" style="color:var(--text-dim);font-size:12px;margin-top:3px;">${r.remarks}</div>` : ''}
         <div class="meta">
           <span class="note-status ${noteStatusClass(r.status)}">${escapeHtml(r.status || '진행중')}</span>
           <span class="note-date">${escapeHtml(r.lastUpdated || '')}</span>
@@ -659,13 +887,16 @@ async function loadData(isManual) {
     allHistory = d.history || [];
     procSets = d.procsets || {};
     customWorkdays = new Set(d.workdays || []);
+    sharedImagesMeta = d.sharedImagesMeta || [];
 
     renderSummary(allModels);
     renderNotice(d.notice);
     renderStatusTab();
     if (wdOpen) renderWdCalendar();
+    if (imgListOpen) renderImgList();
     if (currentTab === 'notes') renderNotesTab();
     if (currentTab === 'perf') renderPerfTab();
+    if (currentTab === 'history') renderHistoryTab();
 
     const now = new Date();
     document.getElementById('lastSync').textContent = `업데이트: ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
