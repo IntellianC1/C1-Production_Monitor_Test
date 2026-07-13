@@ -2673,7 +2673,7 @@ async function saveModel() {
   const procSetKey = document.getElementById('inputProcSet').value || 'KAA';
   if (!modelName || plan <= 0) { alert('모델명과 계획 수량을 입력해주세요.'); return; }
   if (editingModelIdx >= 0 && editModelSnapshot) {
-    const ok = await checkModelConflict(editModelSnapModel, editModelSnapShipDate, ['plan','procSet','excludedProcs','procPlan','fullName'], editModelSnapshot);
+    const ok = await checkModelConflict(editModelSnapModel, editModelSnapShipDate, editModelSnapshot.fullName, ['plan','procSet','excludedProcs','procPlan','fullName'], editModelSnapshot);
     if (!ok) return;
   }
   // 파트넘버별 계획수량: CKD는 "계획 Site 수(plan) × 파트넘버별 Crate 기준"으로 자동계산, 일반 모델은 비어있음
@@ -2698,6 +2698,7 @@ async function saveModel() {
   const existing = editingModelIdx >= 0 ? models[editingModelIdx] : {};
   const matchModel    = existing.model    || null; // 편집 전 원래 식별자 (부분패치 매칭용)
   const matchShipDate = existing.shipDate || null;
+  const matchFullName = existing.fullName || '';
   const selectedColorDot = document.querySelector('#cardColorPicker .mc-color-dot.selected');
   const cardColor = selectedColorDot ? selectedColorDot.dataset.color : 'default';
   const entry = {
@@ -2736,7 +2737,7 @@ async function saveModel() {
   // matchModel/matchShipDate 없어서 또 한 번 append 되어 중복 행이 생기는 버그가 있었음)
   if (editingModelIdx >= 0) {
     gsPost('save_model_edit', {
-      matchModel, matchShipDate,
+      matchModel, matchShipDate, matchFullName,
       model: modelName, fullName, plan, shipDate, procSet: procSetKey,
       excludedProcs, procPlan,
     }).catch(e => console.error('save_model_edit 실패:', e));
@@ -2751,9 +2752,9 @@ async function saveModel() {
 // fieldNames: 비교할 필드 이름 배열 (예: ['procs','wip','wipPct'])
 // mySnapshot: 팝업 열 때 그 필드들만 뽑아서 만든 객체
 // 다르면 확인창을 띄우고, "취소"하면 false(저장 중단), "확인"이면 true(그대로 진행)
-async function checkModelConflict(modelName, shipDate, fieldNames, mySnapshot) {
+async function checkModelConflict(modelName, shipDate, fullName, fieldNames, mySnapshot) {
   try {
-    const res  = await fetch(GS_URL + '?action=check_model&model=' + encodeURIComponent(modelName) + '&shipDate=' + encodeURIComponent(shipDate));
+    const res  = await fetch(GS_URL + '?action=check_model&model=' + encodeURIComponent(modelName) + '&shipDate=' + encodeURIComponent(shipDate) + '&fullName=' + encodeURIComponent(fullName || ''));
     const json = await res.json();
     if (json.status !== 'ok' || !json.data || !json.data.exists) return true; // 신규 모델이거나 조회 실패면 그냥 진행
     const sheetPart = {};
@@ -2784,14 +2785,15 @@ async function instantSaveModels(actionName, badgeId) {
         const safeJson = await safeRes.json();
         const safeSheetModels = safeJson.data?.models || [];
         safeSheetModels.forEach(sheetM => {
-          const existsLocally = models.some(m => m.model === sheetM.model && m.shipDate === sheetM.shipDate);
+          const existsLocally = models.some(m => m.model === sheetM.model && m.shipDate === sheetM.shipDate && (m.fullName||'') === (sheetM.fullName||''));
           if (!existsLocally) models.push(sheetM);
         });
         // 시트 히스토리에 이미 완료된 모델은 로컬에서 제거 (부활 방지, manualSave와 동일한 안전장치)
+        // ⚠ 세부모델명(fullName)까지 포함해야 함 - 안 그러면 모델명+포장기준일만 같은 별개 모델을 오인해서 지울 수 있음
         const safeHistoryKeys = new Set(
-          (safeJson.data?.history || []).map(h => h.model + '|' + String(h.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10))
+          (safeJson.data?.history || []).map(h => h.model + '|' + String(h.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) + '|' + (h.fullName||''))
         );
-        models = models.filter(m => !safeHistoryKeys.has(m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10)));
+        models = models.filter(m => !safeHistoryKeys.has(m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) + '|' + (m.fullName||'')));
         hasSyncedOnce = true;
       } catch(safeErr) {
         console.warn('최초 동기화 전 안전 병합 실패 (저장 중단):', safeErr);
@@ -2818,7 +2820,7 @@ async function instantSaveModels(actionName, badgeId) {
       const sheetModels = fullJson.data?.models || [];
       const changes = [];
       sheetModels.forEach(sheetM => {
-        const localM = models.find(m => m.model === sheetM.model && m.shipDate === sheetM.shipDate);
+        const localM = models.find(m => m.model === sheetM.model && m.shipDate === sheetM.shipDate && (m.fullName||'') === (sheetM.fullName||''));
         if (!localM) return;
         Object.keys(sheetM.procs || {}).forEach(procId => {
           if ((localM.procs[procId]||0) !== (sheetM.procs[procId]||0)) {
@@ -2888,17 +2890,19 @@ async function manualSave(saverName) {
     // (신규 PC로 열었거나, 첫 동기화 전에 저장을 누르는 경우 로컬 models가 비어있거나 오래된 상태일 수 있음.
     //  이 보정이 없으면 저장 시 시트에만 있던 모델이 통째로 사라지는 심각한 데이터 유실이 발생함)
     sheetModels.forEach(sheetM => {
-      const existsLocally = models.some(m => m.model === sheetM.model && m.shipDate === sheetM.shipDate);
+      const existsLocally = models.some(m => m.model === sheetM.model && m.shipDate === sheetM.shipDate && (m.fullName||'') === (sheetM.fullName||''));
       if (!existsLocally) models.push(sheetM);
     });
 
     // ── 시트 히스토리에 이미 "완료 처리"된 모델은 내 로컬에서 제거하고 저장
     // (다른 PC가 먼저 완료 처리했는데 내 로컬이 그 사실을 아직 못 받아온 상태로 메인저장을 누르면,
     //  내 오래된 로컬 사본이 다시 시트에 써져서 완료된 모델이 부활하는 버그가 있었음 - 이 필터로 방지)
+    // ⚠ 세부모델명(fullName)까지 포함해서 키를 만들어야 함 - 안 그러면 모델명+포장기준일만 같고
+    //   세부모델명이 다른 "완전히 별개의 모델"까지 오인해서 지워버리는 사고가 남
     const sheetHistoryKeys = new Set(
-      (json.data?.history || []).map(h => h.model + '|' + String(h.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10))
+      (json.data?.history || []).map(h => h.model + '|' + String(h.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) + '|' + (h.fullName||''))
     );
-    models = models.filter(m => !sheetHistoryKeys.has(m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10)));
+    models = models.filter(m => !sheetHistoryKeys.has(m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) + '|' + (m.fullName||'')));
 
     hasSyncedOnce = true;
 
@@ -2907,7 +2911,7 @@ async function manualSave(saverName) {
 
       models.forEach((m, mi) => {
         const sheetM = sheetModels.find(s =>
-          s.model === m.model && s.shipDate === m.shipDate
+          s.model === m.model && s.shipDate === m.shipDate && (s.fullName||'') === (m.fullName||'')
         );
         if (!sheetM) return;
 
@@ -2947,7 +2951,7 @@ async function manualSave(saverName) {
         // 충돌 없음 - 시트에만 있는 변경사항 병합
         models.forEach((m, mi) => {
           const sheetM = sheetModels.find(s =>
-            s.model === m.model && s.shipDate === m.shipDate
+            s.model === m.model && s.shipDate === m.shipDate && (s.fullName||'') === (m.fullName||'')
           );
           if (!sheetM) return;
           Object.keys(sheetM.procs || {}).forEach(procId => {
@@ -4710,7 +4714,7 @@ async function deleteModel(idx) {
   updateAll();
   // 삭제는 전체 덮어쓰기(instantSaveModels) 대신, 그 행만 지우는 부분패치로 처리
   // (다른 즉시저장과 동시에 일어나도 서로 안 건드리게)
-  gsPost('delete_model_row', { model: target.model, shipDate: target.shipDate })
+  gsPost('delete_model_row', { model: target.model, shipDate: target.shipDate, fullName: target.fullName || '' })
     .catch(e => console.error('delete_model_row 실패:', e));
 }
 
@@ -4863,6 +4867,7 @@ async function openCellModal(modelIdx, procId, procName, plan, expectedPct) {
   editingCellInfo.snapshot = { procs: {...m.procs}, wip: {...(m.wip||{})}, wipPct: {...(m.wipPct||{})} };
   editingCellInfo.snapModel = m.model;
   editingCellInfo.snapShipDate = m.shipDate;
+  editingCellInfo.snapFullName = m.fullName || '';
   const exp  = Math.round(plan * expectedPct / 100);
   document.getElementById('cellModalTitle').textContent = `공정 수량 편집 · ${m.model}`;
   document.getElementById('cellModalLabel').textContent = `${procName} — 계획 ${plan}대`;
@@ -4888,9 +4893,9 @@ async function openCellModal(modelIdx, procId, procName, plan, expectedPct) {
 function closeCellModal() { document.getElementById('cellModal').classList.remove('open'); editingCellInfo=null; stopModalEditLock(); }
 async function saveCellEdit() {
   if (!editingCellInfo) return;
-  const { modelIdx, procId, plan, snapshot, snapModel, snapShipDate } = editingCellInfo;
+  const { modelIdx, procId, plan, snapshot, snapModel, snapShipDate, snapFullName } = editingCellInfo;
   if (snapshot) {
-    const ok = await checkModelConflict(snapModel, snapShipDate, ['procs','wip','wipPct'], snapshot);
+    const ok = await checkModelConflict(snapModel, snapShipDate, snapFullName, ['procs','wip','wipPct'], snapshot);
     if (!ok) return;
   }
   const done = Math.min(parseInt(document.getElementById('cellInputDone').value)||0, plan);
@@ -4914,6 +4919,7 @@ async function saveCellEdit() {
   gsPost('save_proc', {
     model:    models[modelIdx].model,
     shipDate: models[modelIdx].shipDate,
+    fullName: models[modelIdx].fullName || '',
     procId:   procId,
     done:     models[modelIdx].procs[procId],
     wip:      models[modelIdx].wip[procId]    || 0,
@@ -4992,7 +4998,7 @@ async function saveNotice() {
 
 // ── 상세 모달 (S/N 테이블)
 let detailModelIdx = -1;
-let detailSnapshot = null, detailSnapModel = null, detailSnapShipDate = null;
+let detailSnapshot = null, detailSnapModel = null, detailSnapShipDate = null, detailSnapFullName = null;
 const SN_PROC_COLS = ['조립','조립검사','성능검사','Burn-In','Tracking','RF','SUB검사','공정검사','최종검사','포장검사','포장'];
 
 async function openDetailModal(mi) {
@@ -5004,6 +5010,7 @@ async function openDetailModal(mi) {
   detailSnapshot = { snData: JSON.parse(JSON.stringify(models[mi].snData || [])) };
   detailSnapModel = models[mi].model;
   detailSnapShipDate = models[mi].shipDate;
+  detailSnapFullName = models[mi].fullName || '';
   document.getElementById('detailModelTag').textContent = models[mi].model;
   renderSnTable();
   document.getElementById('detailOverlay').classList.add('open');
@@ -5222,7 +5229,7 @@ function addSnRow() {
 async function saveSnData() {
   if (detailModelIdx < 0) return;
   if (detailSnapshot) {
-    const ok = await checkModelConflict(detailSnapModel, detailSnapShipDate, ['snData'], detailSnapshot);
+    const ok = await checkModelConflict(detailSnapModel, detailSnapShipDate, detailSnapFullName, ['snData'], detailSnapshot);
     if (!ok) return;
   }
   const rows = getSnRows();
@@ -5254,6 +5261,7 @@ async function saveSnData() {
   gsPost('save_detail', {
     model:    models[detailModelIdx].model,
     shipDate: models[detailModelIdx].shipDate,
+    fullName: models[detailModelIdx].fullName || '',
     snData:   models[detailModelIdx].snData,
   }).catch(e => console.error('save_detail 실패:', e));
 }
@@ -5849,11 +5857,11 @@ async function gsLoad() {
       const editLocked = (Date.now() - lastEditTime) < 180000;
       if (!editLocked) {
         // 순서+내용 모두 비교 (shipDate 포함)
-        const sheetKey = d.models.map(m => m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10)).join(',');
-        const localKey = models.map(m => m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10)).join(',');
+        const sheetKey = d.models.map(m => m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) + '|' + (m.fullName||'')).join(',');
+        const localKey = models.map(m => m.model + '|' + String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) + '|' + (m.fullName||'')).join(',');
         const changed = sheetKey !== localKey || d.models.some(sheetM => {
           const sd = String(sheetM.shipDate || '').replace(/^'+/, '').split('T')[0].substring(0,10);
-          const local = models.find(m => m.model === sheetM.model && String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) === sd);
+          const local = models.find(m => m.model === sheetM.model && String(m.shipDate||'').replace(/^'+/,'').split('T')[0].substring(0,10) === sd && (m.fullName||'') === (sheetM.fullName||''));
           if (!local) return true;
           return JSON.stringify(sheetM.procs   || {}) !== JSON.stringify(local.procs   || {})
               || JSON.stringify(sheetM.wip     || {}) !== JSON.stringify(local.wip     || {})
@@ -6021,7 +6029,7 @@ async function gsLoad() {
 // ── 모델카드 특이사항 팝업
 var noteModelIdx = -1;
 var noteDraft = []; // 특이사항 임시 데이터 (저장 전)
-var noteSnapshot = null, noteSnapModel = null, noteSnapShipDate = null;
+var noteSnapshot = null, noteSnapModel = null, noteSnapShipDate = null, noteSnapFullName = null;
 
 async function openNoteModal(mi) {
   if (!(await requireSynced())) return;
@@ -6033,6 +6041,7 @@ async function openNoteModal(mi) {
   noteSnapshot = { noteData: JSON.parse(JSON.stringify(m.noteData || [])) };
   noteSnapModel = m.model;
   noteSnapShipDate = m.shipDate;
+  noteSnapFullName = m.fullName || '';
   document.getElementById('noteModalTitle').textContent = '📋 특이사항 — ' + m.model;
   renderNoteSummary(mi);
   renderNoteTable();
@@ -6237,7 +6246,7 @@ function addNoteRow() {
 async function saveNoteData() {
   if (noteModelIdx < 0) return;
   if (noteSnapshot) {
-    const ok = await checkModelConflict(noteSnapModel, noteSnapShipDate, ['noteData'], noteSnapshot);
+    const ok = await checkModelConflict(noteSnapModel, noteSnapShipDate, noteSnapFullName, ['noteData'], noteSnapshot);
     if (!ok) return;
   }
   // draft를 models에 반영
@@ -6249,6 +6258,7 @@ async function saveNoteData() {
   gsPost('save_note', {
     model:    models[noteModelIdx].model,
     shipDate: models[noteModelIdx].shipDate,
+    fullName: models[noteModelIdx].fullName || '',
     noteData: models[noteModelIdx].noteData,
   }).then(() => setSyncStatus('특이사항 저장됨 ✓', 'var(--green)'))
     .catch(() => setSyncStatus('특이사항 저장 실패', 'var(--red)'));
