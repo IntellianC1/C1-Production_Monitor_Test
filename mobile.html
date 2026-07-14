@@ -206,9 +206,16 @@
 
   /* ── 결품리스트 */
   .shortage-info { font-size:11px; color:var(--text-dim); margin-bottom:8px; }
-  .shortage-card { background:var(--bg-card2); border-radius:8px; padding:9px 11px; margin-top:6px; }
+  .shortage-card { background:var(--bg-card2); border-radius:8px; padding:0; margin-top:6px; display:flex; overflow:hidden; }
   .shortage-card:first-child { margin-top:0; }
+  .shortage-line {
+    flex-shrink:0; width:64px; display:flex; align-items:center; justify-content:center; text-align:center;
+    background:var(--accent-dim); border-right:1px solid var(--border);
+    font-size:12px; font-weight:700; color:var(--accent2); padding:8px 4px; word-break:break-word;
+  }
+  .shortage-main { flex:1; padding:9px 11px; min-width:0; }
   .shortage-card .comp { font-size:13px; font-weight:700; color:var(--text-primary); }
+  .shortage-card .order { font-size:11px; color:var(--text-dim); margin-top:1px; }
   .shortage-card .row2 { display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-top:3px; }
   .shortage-card .qty { font-family:var(--font-mono); font-weight:700; color:var(--red); }
   .shortage-card .note { font-size:11px; color:var(--text-secondary); margin-top:3px; }
@@ -612,10 +619,16 @@ function renderShortageTab() {
   }
   content.innerHTML = items.map(it => `
     <div class="shortage-card">
-      <div class="comp">${escapeHtml(it.comp || '(부품명 없음)')}</div>
-      <div class="row2"><span>${escapeHtml(it.line||'')} · ${escapeHtml(it.order||'')}</span><span class="qty">${escapeHtml(String(it.qty||0))}</span></div>
-      <div class="row2"><span>${escapeHtml(it.desc||'')}</span><span>${escapeHtml(it.date||'')}</span></div>
-      ${it.note ? `<div class="note">📝 ${escapeHtml(it.note)}</div>` : ''}
+      <div class="shortage-line">${escapeHtml(it.line || '-')}</div>
+      <div class="shortage-main">
+        <div class="row2" style="margin-top:0;">
+          <span class="comp">${escapeHtml(it.comp || '(부품명 없음)')}</span>
+          <span class="qty">${escapeHtml(String(it.qty||0))}</span>
+        </div>
+        <div class="order">${escapeHtml(it.order||'')}</div>
+        <div class="row2"><span>${escapeHtml(it.desc||'')}</span><span>${escapeHtml(it.date||'')}</span></div>
+        ${it.note ? `<div class="note">📝 ${escapeHtml(it.note)}</div>` : ''}
+      </div>
     </div>
   `).join('');
 }
